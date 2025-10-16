@@ -1,27 +1,30 @@
-import discord
-import asyncio
 import aiohttp
-import traceback
-import datetime
-import random
-import asyncpg
-import json
+import asyncio
 import datetime
 import inspect
-import re
 import json
+import random
+import re
+import traceback
 from io import BytesIO
+
+import asyncpg
+import discord
+
 import util
+from configs import Configs
 from emoji import clean_emoji
 from event import Event
 from options import Options
-from configs import Configs
 from util import encode, decode
+
 
 intents = discord.Intents.default()
 intents.members = True
+intents.message_content = True
+intents.moderation = True
+intents.guilds = True
 bot = discord.Client(intents=intents)
-bot.session = aiohttp.ClientSession()
 
 bot.timestamp = 0
 bot.last_check_in = 0
@@ -31,6 +34,7 @@ bot._guild_prefix_cache = {}
 with open("config.json") as w:
     cfg = json.loads(w.read())
 
+aiohttp_session = None
 
 @bot.event
 async def on_ready():
@@ -38,10 +42,10 @@ async def on_ready():
     if not bot.timestamp:
 
         credentials = {
-            "user": "watchbot",
+            "user": cfg["db_user"],
             "password": cfg["db_pass"],
-            "database": "watchdata",
-            "host": "localhost",
+            "database": cfg["db_name"],
+            "host": cfg["db_host"],
         }
         db = await asyncpg.create_pool(**credentials)
 
@@ -53,9 +57,13 @@ async def on_ready():
 
         bot.db = db
 
+        global aiohttp_session
+        aiohttp_session = aiohttp.ClientSession()
+        bot.session = aiohttp_session
+
         bot._guild_check_queue = list(bot.guilds)
         bot.dispatch("run_check_loop")
-        bot.timestamp = datetime.datetime.utcnow().timestamp()
+        bot.timestamp = datetime.datetime.now(datetime.UTC).timestamp()
 
         watching_choices = ["you.", "carefully", "closely"]
         while True:
@@ -67,6 +75,13 @@ async def on_ready():
             )
             await asyncio.sleep(3600)
 
+@bot.event
+async def close():
+    global aiohttp_session
+    await aiohttp_session.close()
+    await bot.db.close()
+    exit()
+
 
 event_t = [
     discord.AuditLogAction.kick,
@@ -74,7 +89,9 @@ event_t = [
     discord.AuditLogAction.unban,
     discord.AuditLogAction.member_role_update,
 ]
+
 event_t_str = ["kick", "ban", "unban", "role_update", "role_add", "role_remove"]
+
 event_t_display = [
     "Kick",
     "Ban",
@@ -83,7 +100,6 @@ event_t_display = [
     "Special Role Added",
     "Special Role Removed",
 ]
-
 
 async def send_webhook(url=cfg.get("webhook_url"), **kwargs):
     if url:
@@ -146,7 +162,7 @@ async def on_run_check_loop():
                 )
 
         # Check in every hour
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.UTC)
 
         if now.timestamp() - bot.last_check_in > 3660:
             await send_webhook(
@@ -189,7 +205,7 @@ async def get_guild_configs(guild_id):
 async def check_guild_logs(guild, guild_config):
     recent_events = guild_config.recent_events
     if not recent_events:
-        recent_events = [discord.utils.time_snowflake(datetime.datetime.utcnow())]
+        recent_events = [discord.utils.time_snowflake(datetime.datetime.now(datetime.UTC))]
 
     events = []
     special_roles = guild_config.roles
@@ -338,7 +354,7 @@ async def post_entries(entries, channel, guild_config):
 
 
 invite_reg = re.compile(
-    "((?:https?:\/\/)?discord(?:\.gg|app\.com\/invite)\/(?:#\/)?)([a-zA-Z0-9-]*)"
+    r"((?:https?:\/\/)?discord(?:\.gg|app\.com\/invite)\/(?:#\/)?)([a-zA-Z0-9-]*)"
 )
 
 
@@ -354,7 +370,7 @@ def generate_entry(
 
     name = event.target_name
     if not config.options.reveal_invites:
-        name = invite_reg.sub("\g<1>[INVITE REDACTED]", name)
+        name = invite_reg.sub(r"\g<1>[INVITE REDACTED]", name)
     name = clean_emoji(name)
 
     ret += "**User**: {} ({})".format(name, event.target_id)
@@ -372,7 +388,7 @@ def generate_entry(
     if type(event.actor) == int:
         ret += f"{event.actor}"
     else:
-        ret += "{}#{}".format(clean_emoji(event.actor.name), event.actor.discriminator)
+        ret += f"{clean_emoji(event.actor.name)}"
 
     ret = ret.replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
     return ret
@@ -461,7 +477,7 @@ async def on_message(message):
 
 
 async def time(message, args, **kwargs):
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.UTC)
     await message.channel.send(f"\⌚ The time is now `{now.strftime('%H:%M')}` UTC.")
 
 
