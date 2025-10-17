@@ -336,8 +336,6 @@ async def check_guild_logs(guild, guild_config):
             for e in events:
                 latest_event_count += 1
                 e.set_count(latest_event_count)
-                print(e.timestamp)
-                print(e.timestamp.tzinfo)
 
                 await conn.execute(
                     """INSERT INTO events(

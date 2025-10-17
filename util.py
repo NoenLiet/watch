@@ -33,7 +33,6 @@ async def get_member(bot, member_id):
     if not user:
         user = discord.Object(id=member_id)
         user.name = "Deleted User"
-        user.discriminator = "0000"
 
     return user
 
