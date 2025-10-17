@@ -3,6 +3,8 @@ import asyncio
 import datetime
 import inspect
 import json
+import logging
+import logging.handlers
 import random
 import re
 import traceback
@@ -19,71 +21,83 @@ from event import Event
 from options import Options
 from util import encode, decode
 
-
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
-intents.moderation = True
-intents.guilds = True
-bot = discord.Client(intents=intents)
-
-bot.timestamp = 0
-bot.last_check_in = 0
-bot._guild_check_queue = []
-bot._guild_prefix_cache = {}
-
 with open("config.json") as w:
     cfg = json.loads(w.read())
 
-aiohttp_session = None
+class WatchClient(discord.Client):
+    def __init__(self):
+        self.timestamp = 0
+        self.last_check_in = 0
+        self._guild_check_queue = []
+        self._guild_prefix_cache = {}
+        self.db = None
+        self.session = None
 
-@bot.event
-async def on_ready():
-    print("Watching...")
-    if not bot.timestamp:
+        intents = discord.Intents.default()
+        intents.members = True
+        intents.message_content = True
+        intents.moderation = True
+        intents.guilds = True
+        super().__init__(intents=intents)
 
-        credentials = {
-            "user": cfg["db_user"],
-            "password": cfg["db_pass"],
-            "database": cfg["db_name"],
-            "host": cfg["db_host"],
-        }
-        db = await asyncpg.create_pool(**credentials)
+        handler = logging.handlers.RotatingFileHandler(
+        filename='watch.log', 
+        encoding='utf-8', 
+        maxBytes=32 * 1024 * 1024,  # 32 MiB
+        backupCount=5
+        )
+        formatter = logging.Formatter('[%(asctime)s] - [%(levelname)s] - %(message)s', '%Y-%m-%d %H:%M:%S')
+        handler.setFormatter(formatter)
+        self.logger = logging.getLogger('discord')
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
 
-        # await db.execute("CREATE TABLE IF NOT EXISTS guild_configs(guild_id bigint PRIMARY KEY, post_channel bigint, prefix text DEFAULT '!', options integer DEFAULT 0, latest_event_count integer, special_roles bigint[], recent_events bigint[], _offset integer DEFAULT 0);")
-        # await db.execute("CREATE TYPE event_t AS enum('kick', 'ban', 'unban', 'role_add', 'role_remove');")
-        # await db.execute("CREATE TABLE IF NOT EXISTS events(event_id integer, guild_id bigint REFERENCES guild_configs(guild_id), event_type event_t, reason text, timestamp TIMESTAMP, message_id bigint, target_id bigint, target_name text, actor bigint, role_id bigint, role_name text, PRIMARY KEY (event_id, guild_id));")
+    async def on_ready(self):
+        print("Watching...")
+        if not self.timestamp:
 
-        # Look like CREATE TYPE IF NOT EXISTS isn't a thing so just run those in the db before starting the bot ever
+            credentials = {
+                "user": cfg["db_user"],
+                "password": cfg["db_pass"],
+                "database": cfg["db_name"],
+                "host": cfg["db_host"],
+            }
+            db = await asyncpg.create_pool(**credentials)
 
-        bot.db = db
-        await bot.db.execute("SET TIMEZONE = 'UTC';")
+            # await db.execute("CREATE TABLE IF NOT EXISTS guild_configs(guild_id bigint PRIMARY KEY, post_channel bigint, prefix text DEFAULT '!', options integer DEFAULT 0, latest_event_count integer, special_roles bigint[], recent_events bigint[], _offset integer DEFAULT 0);")
+            # await db.execute("CREATE TYPE event_t AS enum('kick', 'ban', 'unban', 'role_add', 'role_remove');")
+            # await db.execute("CREATE TABLE IF NOT EXISTS events(event_id integer, guild_id bigint REFERENCES guild_configs(guild_id), event_type event_t, reason text, timestamp TIMESTAMP, message_id bigint, target_id bigint, target_name text, actor bigint, role_id bigint, role_name text, PRIMARY KEY (event_id, guild_id));")
 
-        global aiohttp_session
-        aiohttp_session = aiohttp.ClientSession()
-        bot.session = aiohttp_session
+            # Look like CREATE TYPE IF NOT EXISTS isn't a thing so just run those in the db before starting the bot ever
 
-        bot._guild_check_queue = list(bot.guilds)
-        bot.dispatch("run_check_loop")
-        bot.timestamp = datetime.datetime.now(pytz.utc).timestamp()
+            self.db = db
+            await self.db.execute("SET TIMEZONE = 'UTC';")
 
-        watching_choices = ["you.", "carefully", "closely"]
-        while True:
-            await bot.change_presence(
-                activity=discord.Activity(
-                    type=discord.ActivityType.watching,
-                    name=random.choice(watching_choices),
+            self._guild_check_queue = list(bot.guilds)
+            self.dispatch("run_check_loop")
+            self.timestamp = datetime.datetime.now(pytz.utc).timestamp()
+
+            watching_choices = ["you.", "carefully", "closely"]
+            while True:
+                await self.change_presence(
+                    activity=discord.Activity(
+                        type=discord.ActivityType.watching,
+                        name=random.choice(watching_choices),
+                    )
                 )
-            )
-            await asyncio.sleep(3600)
+                await asyncio.sleep(3600)
 
-@bot.event
-async def close():
-    global aiohttp_session
-    await aiohttp_session.close()
-    await bot.db.close()
-    exit()
+    async def setup_hook(self):
+        self.session = aiohttp.ClientSession()
 
+    async def close(self):
+        if self.db:
+            await self.db.close()
+        if self.session:
+            await self.session.close()
+        await super().close()
+
+bot = WatchClient()
 
 event_t = [
     discord.AuditLogAction.kick,
@@ -102,14 +116,6 @@ event_t_display = [
     "Special Role Added",
     "Special Role Removed",
 ]
-
-async def send_webhook(url=cfg.get("webhook_url"), **kwargs):
-    if url:
-        webhook = discord.Webhook.from_url(
-            url, session=bot.session
-        )
-        return await webhook.send(**kwargs)
-
 
 @bot.event
 async def on_run_check_loop():
@@ -174,6 +180,17 @@ async def on_run_check_loop():
 
         await asyncio.sleep(2)
 
+async def send_webhook(url=cfg.get("webhook_url"), **kwargs):
+    if url:
+        webhook = discord.Webhook.from_url(
+            url, session=bot.session
+        )
+        try:
+            return await webhook.send(**kwargs)
+        except Exception as e:
+            print("Sending webhook message failed.")
+            print(e)
+            print(f"Content: {kwargs}")
 
 @bot.event
 async def on_member_ban(guild, user):
