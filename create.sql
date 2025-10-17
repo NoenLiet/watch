@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS events(
     guild_id bigint REFERENCES guild_configs(guild_id),
     event_type event_t,
     reason text,
-    timestamp TIMESTAMP,
+    timestamp TIMESTAMP WITH TIME ZONE,
     message_id bigint,
     target_id bigint,
     target_name text,

@@ -10,6 +10,7 @@ from io import BytesIO
 
 import asyncpg
 import discord
+import pytz
 
 import util
 from configs import Configs
@@ -56,6 +57,7 @@ async def on_ready():
         # Look like CREATE TYPE IF NOT EXISTS isn't a thing so just run those in the db before starting the bot ever
 
         bot.db = db
+        await bot.db.execute("SET TIMEZONE = 'UTC';")
 
         global aiohttp_session
         aiohttp_session = aiohttp.ClientSession()
@@ -63,7 +65,7 @@ async def on_ready():
 
         bot._guild_check_queue = list(bot.guilds)
         bot.dispatch("run_check_loop")
-        bot.timestamp = datetime.datetime.now(datetime.UTC).timestamp()
+        bot.timestamp = datetime.datetime.now(pytz.utc).timestamp()
 
         watching_choices = ["you.", "carefully", "closely"]
         while True:
@@ -104,7 +106,7 @@ event_t_display = [
 async def send_webhook(url=cfg.get("webhook_url"), **kwargs):
     if url:
         webhook = discord.Webhook.from_url(
-            url, adapter=discord.AsyncWebhookAdapter(bot.session)
+            url, session=bot.session
         )
         return await webhook.send(**kwargs)
 
@@ -162,7 +164,7 @@ async def on_run_check_loop():
                 )
 
         # Check in every hour
-        now = datetime.datetime.now(datetime.UTC)
+        now = datetime.datetime.now(pytz.utc)
 
         if now.timestamp() - bot.last_check_in > 3660:
             await send_webhook(
@@ -205,7 +207,7 @@ async def get_guild_configs(guild_id):
 async def check_guild_logs(guild, guild_config):
     recent_events = guild_config.recent_events
     if not recent_events:
-        recent_events = [discord.utils.time_snowflake(datetime.datetime.now(datetime.UTC))]
+        recent_events = [discord.utils.time_snowflake(datetime.datetime.now(pytz.utc))]
 
     events = []
     special_roles = guild_config.roles
@@ -213,9 +215,18 @@ async def check_guild_logs(guild, guild_config):
     break_signal = False
     oldest = None
     while not break_signal:
+        '''
         raw_events = await guild.audit_logs(
             limit=100, before=discord.Object(id=oldest) if oldest else None
         ).flatten()
+        '''
+        raw_events = [
+            event
+            async for
+            event in guild.audit_logs(
+                limit=100, before=discord.Object(id=oldest) if oldest else None
+            )
+        ]
 
         if oldest == None:
             new_recent_events = [e.id for e in raw_events[:3]]
@@ -308,6 +319,8 @@ async def check_guild_logs(guild, guild_config):
             for e in events:
                 latest_event_count += 1
                 e.set_count(latest_event_count)
+                print(e.timestamp)
+                print(e.timestamp.tzinfo)
 
                 await conn.execute(
                     """INSERT INTO events(
@@ -373,7 +386,7 @@ def generate_entry(
         name = invite_reg.sub(r"\g<1>[INVITE REDACTED]", name)
     name = clean_emoji(name)
 
-    ret += "**User**: {} ({})".format(name, event.target_id)
+    ret += "> **User**: {} ({})".format(name, event.target_id)
     if config.options.ping_target:
         ret += " (<@{}>)".format(event.target_id)
 
@@ -381,14 +394,14 @@ def generate_entry(
     if event.role_id:
         ret += "**Role**: {} ({})\n".format(event.role_name, event.role_id)
 
-    ret += "**Reason**: {}\n".format(
+    ret += "> **Reason**: {}\n".format(
         event.reason if event.reason else default_reason.format(case_num)
     )
-    ret += "**Responsible moderator**: "
+    ret += "> -# **Responsible moderator**: "
     if type(event.actor) == int:
         ret += f"{event.actor}"
     else:
-        ret += f"{clean_emoji(event.actor.name)}"
+        ret += f"{clean_emoji(event.actor.name)} ({event.actor.id})"
 
     ret = ret.replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
     return ret
@@ -477,7 +490,7 @@ async def on_message(message):
 
 
 async def time(message, args, **kwargs):
-    now = datetime.datetime.now(datetime.UTC)
+    now = datetime.datetime.now(pytz.utc)
     await message.channel.send(f"\⌚ The time is now `{now.strftime('%H:%M')}` UTC.")
 
 
@@ -963,8 +976,9 @@ async def setup(message, args, **kwargs):
                 channel = message.guild.get_channel(args["post_channel"])
                 if not channel:
                     raise ValueError
-        except:
+        except Exception as e:
             await message.channel.send("Invalid input!")
+            print(e)
             return
 
         if configs:

@@ -1,8 +1,12 @@
+import datetime
+import json
+import pytz
+
+import discord
+
 from options import Options
 from util import encode, get_color
-import json
-import datetime
-import discord
+
 
 class Configs():
     def __init__(self, guild_id, post_channel, options, prefix, offset, roles, latest_event_count, recent_events):
@@ -20,7 +24,7 @@ class Configs():
         return cls(row.get("guild_id"), row.get("post_channel"), Options(row.get("options")), row.get("prefix"), row.get("_offset"), row.get("special_roles", []), row.get("latest_event_count"), row.get("recent_events", []))
 
     def db_insert(self):
-        return (self.guild_id, self.post_channel, self.prefix, self.options.as_num(), 0, self.roles, [discord.utils.time_snowflake(datetime.datetime.utcnow())], self.offset)
+        return (self.guild_id, self.post_channel, self.prefix, self.options.as_num(), 0, self.roles, [discord.utils.time_snowflake(datetime.datetime.now(pytz.utc))], self.offset)
     
     def export(self):
         return encode(json.dumps({
