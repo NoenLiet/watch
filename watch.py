@@ -53,7 +53,10 @@ class WatchClient(discord.Client):
         self.logger.setLevel(logging.INFO)
 
     async def on_ready(self):
+        print(f"Logged in as {self.user}, ID: {self.user.id}")
         print("Watching...")
+        print("---------------------")
+
         if not self.timestamp:
 
             credentials = {
