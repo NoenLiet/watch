@@ -12,7 +12,6 @@ from io import BytesIO
 
 import asyncpg
 import discord
-import pytz
 
 import util
 from configs import Configs
@@ -78,7 +77,7 @@ class WatchClient(discord.Client):
 
             self._guild_check_queue = list(bot.guilds)
             self.dispatch("run_check_loop")
-            self.timestamp = datetime.datetime.now(pytz.utc).timestamp()
+            self.timestamp = datetime.datetime.now(datetime.UTC).timestamp()
 
             watching_choices = ["you.", "carefully", "closely"]
             while True:
@@ -173,7 +172,7 @@ async def on_run_check_loop():
                 )
 
         # Check in every hour
-        now = datetime.datetime.now(pytz.utc)
+        now = datetime.datetime.now(datetime.UTC)
 
         if now.timestamp() - bot.last_check_in > 3660:
             await send_webhook(
@@ -227,7 +226,7 @@ async def get_guild_configs(guild_id):
 async def check_guild_logs(guild, guild_config):
     recent_events = guild_config.recent_events
     if not recent_events:
-        recent_events = [discord.utils.time_snowflake(datetime.datetime.now(pytz.utc))]
+        recent_events = [discord.utils.time_snowflake(datetime.datetime.now(datetime.UTC))]
 
     events = []
     special_roles = guild_config.roles
@@ -508,7 +507,7 @@ async def on_message(message):
 
 
 async def time(message, args, **kwargs):
-    now = datetime.datetime.now(pytz.utc)
+    now = datetime.datetime.now(datetime.UTC)
     await message.channel.send(f"\⌚ The time is now `{now.strftime('%H:%M')}` UTC.")
 
 
