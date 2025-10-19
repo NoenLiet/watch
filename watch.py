@@ -73,7 +73,6 @@ class WatchClient(discord.Client):
             # Look like CREATE TYPE IF NOT EXISTS isn't a thing so just run those in the db before starting the bot ever
 
             self.db = db
-            await self.db.execute("SET TIMEZONE = 'UTC';")
 
             self._guild_check_queue = list(bot.guilds)
             self.dispatch("run_check_loop")
