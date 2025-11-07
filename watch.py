@@ -76,6 +76,7 @@ class WatchClient(discord.Client):
 
             self._guild_check_queue = list(bot.guilds)
             self.dispatch("run_check_loop")
+            self.dispatch("support_server_vc_update")
             self.timestamp = datetime.datetime.now(datetime.UTC).timestamp()
 
             watching_choices = ["you.", "carefully", "closely"]
@@ -180,6 +181,24 @@ async def on_run_check_loop():
             bot.last_check_in = now.timestamp()
 
         await asyncio.sleep(2)
+
+@bot.event
+async def on_support_server_vc_update():
+    if cfg['time_vc_id']:
+        channel = bot.get_channel(cfg['time_vc_id'])
+    if not channel:
+        channel = await bot.fetch_channel(cfg['time_vc_id'])
+    if not channel:
+        return
+    while True:
+        now = datetime.datetime.now(datetime.UTC)
+        text = now.strftime("%A, %I:%M %p")
+        try:
+            channel.edit(name=text)
+            print(f"\tEdited {channel.id} to {text}")
+        except Exception as e:
+            print(f"Error: {e}")
+        await asyncio.sleep(301)
 
 async def send_webhook(url=cfg.get("webhook_url"), **kwargs):
     if url:
