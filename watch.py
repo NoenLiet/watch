@@ -194,7 +194,7 @@ async def on_support_server_vc_update():
         now = datetime.datetime.now(datetime.UTC)
         text = now.strftime("%A, %I:%M %p")
         try:
-            channel.edit(name=text)
+            await channel.edit(name=text)
             print(f"\tEdited {channel.id} to {text}")
         except Exception as e:
             print(f"Error: {e}")
