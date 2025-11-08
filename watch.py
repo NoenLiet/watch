@@ -195,7 +195,7 @@ async def on_support_server_vc_update():
         text = now.strftime("%A, %I:%M %p")
         try:
             await channel.edit(name=text)
-            print(f"\tEdited {channel.id} to {text}")
+            # print(f"\tEdited {channel.id} to {text}")
         except Exception as e:
             print(f"Error: {e}")
         await asyncio.sleep(301)
