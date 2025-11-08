@@ -587,10 +587,7 @@ async def sudo(message, args, **kwargs):
 async def close(message, **kwargs):
     if message.author.id == cfg["owner_id"]:
         msg = await message.channel.send("Shutting down...")
-        await bot.db.close()
-        await bot.logout()
         await bot.close()
-        exit()
 
 
 def get_case_number(num, max_num, offset=0, allow_case_range=False):
